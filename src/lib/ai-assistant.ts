@@ -146,7 +146,7 @@ export async function toolSearchExpenses(groupId: string, query?: string, limit:
       receiptImageUrl: e.receiptImageUrl || undefined,
       date: e.date,
       splitType: e.splitType,
-      itemsCount: e.items.length,
+      itemsCount: e.items ? e.items.length : 0,
     })),
   };
 }
@@ -283,114 +283,135 @@ Always choose the appropriate tool(s) to answer financial questions accurately.
 Never fabricate or hallucinate financial numbers. All figures must be grounded in tool results.
 Explain the answer clearly and concisely in natural language based on the returned tool data.`;
 
-      const initialMessage = await anthropic.messages.create({
-        model: "claude-3-5-sonnet-20241022",
-        max_tokens: 1024,
-        system: systemPrompt,
-        messages: [{ role: "user", content: userPrompt }],
-        tools: CLAUDE_TOOLS,
-      });
+      const messages: any[] = [{ role: "user", content: userPrompt }];
+      const allCitations: AssistantCitation[] = [];
+      const executedTools: string[] = [];
+      let latestData: any = null;
+      let finalAnswer = "";
 
-      const toolUseBlock = initialMessage.content.find((c) => c.type === "tool_use");
+      const MAX_ITERATIONS = 4;
 
-      if (toolUseBlock && toolUseBlock.type === "tool_use") {
-        const toolName = toolUseBlock.name;
-        const toolInput = toolUseBlock.input as any;
-
-        let toolResult: any = null;
-        const citations: AssistantCitation[] = [];
-
-        if (toolName === "getUserBalance") {
-          toolResult = await toolGetUserBalance(groupId, currentUserId, toolInput.targetUserName);
-          const recent = await toolSearchExpenses(groupId, undefined, 2);
-          for (const exp of recent.expenses) {
-            citations.push({
-              id: exp.id,
-              title: exp.description,
-              amount: exp.amount,
-              date: exp.date,
-              paidBy: exp.paidByName,
-              receiptUrl: exp.receiptImageUrl,
-            });
-          }
-        } else if (toolName === "getCategorySpending") {
-          toolResult = await toolGetCategorySpending(groupId, toolInput.category);
-          for (const exp of toolResult.expenses.slice(0, 5)) {
-            citations.push({
-              id: exp.id,
-              title: exp.description,
-              amount: exp.amount,
-              date: exp.date,
-              paidBy: exp.paidByName,
-              category: exp.category,
-              receiptUrl: exp.receiptImageUrl,
-            });
-          }
-        } else if (toolName === "searchExpenses") {
-          toolResult = await toolSearchExpenses(groupId, toolInput.query, toolInput.limit || 10);
-          for (const exp of toolResult.expenses) {
-            citations.push({
-              id: exp.id,
-              title: exp.description,
-              amount: exp.amount,
-              date: exp.date,
-              paidBy: exp.paidByName,
-              category: exp.category,
-              receiptUrl: exp.receiptImageUrl,
-            });
-          }
-        } else if (toolName === "getSettlementPlan") {
-          toolResult = await toolGetSettlementPlan(groupId);
-          const recent = await toolSearchExpenses(groupId, undefined, 2);
-          for (const exp of recent.expenses) {
-            citations.push({
-              id: exp.id,
-              title: exp.description,
-              amount: exp.amount,
-              date: exp.date,
-              paidBy: exp.paidByName,
-              receiptUrl: exp.receiptImageUrl,
-            });
-          }
-        }
-
-        // Send tool results back to Claude for final synthesized response
-        const followup = await anthropic.messages.create({
+      for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
+        const response = await anthropic.messages.create({
           model: "claude-3-5-sonnet-20241022",
           max_tokens: 1024,
           system: systemPrompt,
-          messages: [
-            { role: "user", content: userPrompt },
-            { role: "assistant", content: initialMessage.content },
-            {
-              role: "user",
-              content: [
-                {
-                  type: "tool_result",
-                  tool_use_id: toolUseBlock.id,
-                  content: JSON.stringify(toolResult),
-                },
-              ],
-            },
-          ],
+          messages,
+          tools: CLAUDE_TOOLS,
         });
 
-        const textBlock = followup.content.find((c) => c.type === "text");
-        const answer = textBlock && textBlock.type === "text" ? textBlock.text : "Processed request successfully.";
+        // Add assistant's response to history
+        messages.push({ role: "assistant", content: response.content });
 
-        return {
-          answer,
-          citations,
-          toolExecuted: toolName,
-          data: toolResult,
-        };
-      } else {
-        const textBlock = initialMessage.content.find((c) => c.type === "text");
-        return {
-          answer: textBlock && textBlock.type === "text" ? textBlock.text : "How can I help you analyze the group ledger?",
-          citations: [],
-        };
+        // Find all tool_use blocks in this response turn
+        const toolUseBlocks = response.content.filter((c) => c.type === "tool_use");
+
+        if (toolUseBlocks.length === 0) {
+          // No more tool calls required; grab the final text response
+          const textBlock = response.content.find((c) => c.type === "text");
+          if (textBlock && textBlock.type === "text") {
+            finalAnswer = textBlock.text;
+          }
+          break;
+        }
+
+        // Execute all tool calls for this turn
+        const toolResultContents: any[] = [];
+
+        for (const toolUse of toolUseBlocks) {
+          if (toolUse.type !== "tool_use") continue;
+          const toolName = toolUse.name;
+          const toolInput = toolUse.input as any;
+          executedTools.push(toolName);
+
+          let toolResult: any = null;
+
+          if (toolName === "getUserBalance") {
+            toolResult = await toolGetUserBalance(groupId, currentUserId, toolInput.targetUserName);
+            const recent = await toolSearchExpenses(groupId, undefined, 2);
+            for (const exp of recent.expenses) {
+              allCitations.push({
+                id: exp.id,
+                title: exp.description,
+                amount: exp.amount,
+                date: exp.date,
+                paidBy: exp.paidByName,
+                receiptUrl: exp.receiptImageUrl,
+              });
+            }
+          } else if (toolName === "getCategorySpending") {
+            toolResult = await toolGetCategorySpending(groupId, toolInput.category);
+            for (const exp of toolResult.expenses.slice(0, 5)) {
+              allCitations.push({
+                id: exp.id,
+                title: exp.description,
+                amount: exp.amount,
+                date: exp.date,
+                paidBy: exp.paidByName,
+                category: exp.category,
+                receiptUrl: exp.receiptImageUrl,
+              });
+            }
+          } else if (toolName === "searchExpenses") {
+            toolResult = await toolSearchExpenses(groupId, toolInput.query, toolInput.limit || 10);
+            for (const exp of toolResult.expenses) {
+              allCitations.push({
+                id: exp.id,
+                title: exp.description,
+                amount: exp.amount,
+                date: exp.date,
+                paidBy: exp.paidByName,
+                category: exp.category,
+                receiptUrl: exp.receiptImageUrl,
+              });
+            }
+          } else if (toolName === "getSettlementPlan") {
+            toolResult = await toolGetSettlementPlan(groupId);
+            const recent = await toolSearchExpenses(groupId, undefined, 2);
+            for (const exp of recent.expenses) {
+              allCitations.push({
+                id: exp.id,
+                title: exp.description,
+                amount: exp.amount,
+                date: exp.date,
+                paidBy: exp.paidByName,
+                receiptUrl: exp.receiptImageUrl,
+              });
+            }
+          } else {
+            toolResult = { error: `Unrecognized tool: ${toolName}` };
+          }
+
+          latestData = toolResult;
+
+          toolResultContents.push({
+            type: "tool_result",
+            tool_use_id: toolUse.id,
+            content: JSON.stringify(toolResult),
+          });
+        }
+
+        // Send tool results back to Claude for the next loop iteration
+        messages.push({
+          role: "user",
+          content: toolResultContents,
+        });
       }
+
+      // Deduplicate citations collected across all tool invocations
+      const seenCitationIds = new Set<string>();
+      const uniqueCitations = allCitations.filter((c) => {
+        if (seenCitationIds.has(c.id)) return false;
+        seenCitationIds.add(c.id);
+        return true;
+      });
+
+      return {
+        answer: finalAnswer || "Processed ledger analysis with database grounding.",
+        citations: uniqueCitations,
+        toolExecuted: executedTools.length > 0 ? executedTools.join(", ") : undefined,
+        data: latestData,
+      };
     } catch (err: any) {
       console.warn("Claude tool calling error, falling back to local grounded execution:", err.message);
     }
