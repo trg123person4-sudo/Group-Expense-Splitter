@@ -2,7 +2,7 @@
 
 import { useMemo } from "react";
 import { formatCurrency } from "@/lib/utils";
-import { Download } from "lucide-react";
+import { Download, FileText } from "lucide-react";
 
 interface ExpenseSplit {
   userId: string;
@@ -116,6 +116,81 @@ export function AnalyticsView({
     document.body.removeChild(link);
   };
 
+  const handleExportPDF = () => {
+    const printWindow = window.open("", "_blank");
+    if (!printWindow) return;
+
+    const rowsHtml = expenses
+      .map(
+        (e) => `
+      <tr>
+        <td style="padding: 6px 10px; border-bottom: 1px solid #e4e4e1; font-family: monospace;">${new Date(e.date).toISOString().split("T")[0]}</td>
+        <td style="padding: 6px 10px; border-bottom: 1px solid #e4e4e1;">${e.description}</td>
+        <td style="padding: 6px 10px; border-bottom: 1px solid #e4e4e1; text-transform: capitalize;">${e.category}</td>
+        <td style="padding: 6px 10px; border-bottom: 1px solid #e4e4e1;">${e.payer?.name || e.paidBy}</td>
+        <td style="padding: 6px 10px; border-bottom: 1px solid #e4e4e1; text-align: right; font-family: monospace;">${currency} ${e.amount.toFixed(2)}</td>
+      </tr>`
+      )
+      .join("");
+
+    const categoryRows = categoryStats
+      .map(
+        (c) => `
+      <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+        <span style="text-transform: capitalize;">${c.category}</span>
+        <span style="font-family: monospace;">${currency} ${c.amount.toFixed(2)} (${c.percentage.toFixed(1)}%)</span>
+      </div>`
+      )
+      .join("");
+
+    printWindow.document.write(`
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>${groupName} — Ledger Statement</title>
+          <style>
+            body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 12px; color: #101112; margin: 40px; }
+            h1 { font-size: 20px; margin-bottom: 4px; }
+            .meta { color: #6b7280; font-size: 11px; margin-bottom: 24px; font-family: monospace; }
+            .card { border: 1px solid #e4e4e1; border-radius: 6px; padding: 16px; margin-bottom: 24px; }
+            table { width: 100%; border-collapse: collapse; text-align: left; }
+            th { padding: 8px 10px; border-bottom: 2px solid #101112; font-size: 11px; text-transform: uppercase; font-family: monospace; }
+            @media print { body { margin: 20px; } }
+          </style>
+        </head>
+        <body>
+          <h1>${groupName}</h1>
+          <div class="meta">Ledger Statement &bull; Generated ${new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })} &bull; Total: ${currency} ${totalSpent.toFixed(2)}</div>
+          
+          <div class="card">
+            <h3 style="font-size: 13px; margin: 0 0 10px 0;">Category Breakdown</h3>
+            ${categoryRows}
+          </div>
+
+          <h3>Transaction History</h3>
+          <table>
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Description</th>
+                <th>Category</th>
+                <th>Paid By</th>
+                <th style="text-align: right;">Amount</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rowsHtml}
+            </tbody>
+          </table>
+          <script>
+            window.onload = function() { window.print(); }
+          </script>
+        </body>
+      </html>
+    `);
+    printWindow.document.close();
+  };
+
   return (
     <div className="space-y-6">
       {/* Top Banner */}
@@ -129,13 +204,22 @@ export function AnalyticsView({
           </h3>
         </div>
 
-        <button
-          onClick={handleExportCSV}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded border border-light-border dark:border-dark-border text-xs font-mono text-light-textPrimary dark:text-dark-textPrimary hover:border-accent hover:text-accent transition-colors"
-        >
-          <Download className="w-3.5 h-3.5" strokeWidth={1.5} />
-          <span>Export CSV</span>
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleExportCSV}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded border border-light-border dark:border-dark-border text-xs font-mono text-light-textPrimary dark:text-dark-textPrimary hover:border-accent hover:text-accent transition-colors"
+          >
+            <Download className="w-3.5 h-3.5" strokeWidth={1.5} />
+            <span>CSV</span>
+          </button>
+          <button
+            onClick={handleExportPDF}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded border border-light-border dark:border-dark-border text-xs font-mono text-light-textPrimary dark:text-dark-textPrimary hover:border-accent hover:text-accent transition-colors"
+          >
+            <FileText className="w-3.5 h-3.5" strokeWidth={1.5} />
+            <span>PDF</span>
+          </button>
+        </div>
       </div>
 
       {/* Budget progress */}

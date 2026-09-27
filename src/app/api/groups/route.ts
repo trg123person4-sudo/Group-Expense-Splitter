@@ -12,11 +12,20 @@ const createGroupSchema = z.object({
   memberEmails: z.array(z.string().email()).optional(),
 });
 
-export async function GET() {
+export async function GET(req: Request) {
   const user = await getCurrentUser();
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+
+  const { searchParams } = new URL(req.url);
+  const page = Math.max(1, parseInt(searchParams.get("page") || "1"));
+  const limit = Math.min(50, Math.max(1, parseInt(searchParams.get("limit") || "20")));
+  const skip = (page - 1) * limit;
+
+  const total = await prisma.group.count({
+    where: { members: { some: { userId: user.id } } },
+  });
 
   const groups = await prisma.group.findMany({
     where: {
@@ -35,9 +44,21 @@ export async function GET() {
       invitations: true,
     },
     orderBy: { createdAt: "desc" },
+    skip,
+    take: limit,
   });
 
-  return NextResponse.json({ groups, currentUser: user });
+  return NextResponse.json({
+    groups,
+    currentUser: user,
+    pagination: {
+      page,
+      limit,
+      total,
+      totalPages: Math.ceil(total / limit),
+      hasMore: skip + groups.length < total,
+    },
+  });
 }
 
 export async function POST(req: Request) {

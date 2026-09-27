@@ -46,6 +46,63 @@ const createExpenseSchema = z.object({
     .optional(),
 });
 
+export async function GET(
+  req: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id: groupId } = await params;
+    const user = await getCurrentUser();
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const membership = await authorizeGroupAccess(groupId, user.id);
+    if (!membership) {
+      return NextResponse.json({ error: "Forbidden: Not in group" }, { status: 403 });
+    }
+
+    const { searchParams } = new URL(req.url);
+    const page = Math.max(1, parseInt(searchParams.get("page") || "1"));
+    const limit = Math.min(100, Math.max(1, parseInt(searchParams.get("limit") || "30")));
+    const category = searchParams.get("category");
+    const skip = (page - 1) * limit;
+
+    const whereClause: any = { groupId };
+    if (category && category !== "all") {
+      whereClause.category = category;
+    }
+
+    const total = await prisma.expense.count({ where: whereClause });
+
+    const expenses = await prisma.expense.findMany({
+      where: whereClause,
+      include: {
+        payer: true,
+        splits: { include: { user: true } },
+        items: { include: { assignments: { include: { user: true } } } },
+        comments: { include: { user: true }, orderBy: { createdAt: "asc" } },
+      },
+      orderBy: { date: "desc" },
+      skip,
+      take: limit,
+    });
+
+    return NextResponse.json({
+      expenses,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+        hasMore: skip + expenses.length < total,
+      },
+    });
+  } catch (err: any) {
+    return NextResponse.json({ error: err.message || "Failed to fetch expenses" }, { status: 500 });
+  }
+}
+
 export async function POST(
   req: Request,
   { params }: { params: Promise<{ id: string }> }
