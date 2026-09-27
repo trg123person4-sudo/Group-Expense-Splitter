@@ -12,12 +12,20 @@ export async function POST(req: Request) {
 
 async function handleRecurringCron(req: Request) {
   try {
-    const authHeader = req.headers.get("authorization");
     const cronSecret = process.env.CRON_SECRET;
+    if (!cronSecret) {
+      return NextResponse.json(
+        { error: "Server Configuration Error: CRON_SECRET must be configured" },
+        { status: 500 }
+      );
+    }
 
-    // Verify secret if configured in production
-    if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
-      return NextResponse.json({ error: "Unauthorized: Invalid cron secret" }, { status: 401 });
+    const authHeader = req.headers.get("authorization");
+    if (authHeader !== `Bearer ${cronSecret}`) {
+      return NextResponse.json(
+        { error: "Unauthorized: Invalid cron secret" },
+        { status: 401 }
+      );
     }
 
     const now = new Date();

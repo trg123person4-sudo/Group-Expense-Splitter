@@ -51,10 +51,15 @@ DATABASE_URL="file:./dev.db"
 NEXTAUTH_SECRET="tally-super-secret-jwt-key-for-development-32chars"
 NEXTAUTH_URL="http://localhost:3000"
 
+# Required in production: protects /api/cron/recurring from unauthorized triggering
+CRON_SECRET="your-secure-random-cron-secret-token"
+
 # Optional AI API keys for live cloud OCR & LLM reasoning:
 GEMINI_API_KEY=""
 ANTHROPIC_API_KEY=""
 ```
+
+> **Important Deployment Requirement:** `CRON_SECRET` must be set before deploying. The recurring expenses automation endpoint (`/api/cron/recurring`) requires an `Authorization: Bearer <CRON_SECRET>` header and fails closed with HTTP 500 if this secret is missing from the environment.
 
 ### 2. Install Dependencies
 ```bash

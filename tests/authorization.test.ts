@@ -1,7 +1,8 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { GET as getGroup, PATCH as patchGroup, DELETE as deleteGroup } from "../src/app/api/groups/[id]/route";
 import { POST as assistantChat } from "../src/app/api/assistant/chat/route";
 import { POST as receiptParse } from "../src/app/api/receipts/parse/route";
+import { POST as recurringCron } from "../src/app/api/cron/recurring/route";
 import * as auth from "../src/lib/auth";
 import * as prismaModule from "../src/lib/prisma";
 import { checkRateLimit, resetRateLimits } from "../src/lib/rate-limiter";
@@ -21,6 +22,10 @@ vi.mock("../src/lib/prisma", () => ({
     groupMember: {
       findUnique: vi.fn(),
       delete: vi.fn(),
+    },
+    expense: {
+      findMany: vi.fn().mockResolvedValue([]),
+      create: vi.fn(),
     },
   },
 }));
@@ -267,6 +272,66 @@ describe("Route Authorization & Security Tests", () => {
       const res4 = checkRateLimit(id, { limit: 2, windowMs: 1000 });
       expect(res4.success).toBe(true);
       expect(res4.remaining).toBe(1);
+    });
+  });
+
+  describe("Recurring Cron Security (/api/cron/recurring)", () => {
+    const originalEnv = process.env.CRON_SECRET;
+
+    afterEach(() => {
+      process.env.CRON_SECRET = originalEnv;
+    });
+
+    it("fails closed with 500 when CRON_SECRET is not configured in environment", async () => {
+      delete process.env.CRON_SECRET;
+
+      const req = new Request("http://localhost/api/cron/recurring", {
+        method: "POST",
+      });
+      const res = await recurringCron(req);
+
+      expect(res.status).toBe(500);
+      const json = await res.json();
+      expect(json.error).toContain("CRON_SECRET must be configured");
+    });
+
+    it("returns 401 Unauthorized when CRON_SECRET is set but Authorization header is missing", async () => {
+      process.env.CRON_SECRET = "super-secret-token";
+
+      const req = new Request("http://localhost/api/cron/recurring", {
+        method: "POST",
+      });
+      const res = await recurringCron(req);
+
+      expect(res.status).toBe(401);
+      const json = await res.json();
+      expect(json.error).toContain("Invalid cron secret");
+    });
+
+    it("returns 401 Unauthorized when Authorization header does not match CRON_SECRET", async () => {
+      process.env.CRON_SECRET = "super-secret-token";
+
+      const req = new Request("http://localhost/api/cron/recurring", {
+        method: "POST",
+        headers: { Authorization: "Bearer wrong-token" },
+      });
+      const res = await recurringCron(req);
+
+      expect(res.status).toBe(401);
+    });
+
+    it("succeeds with 200 when valid Authorization header matches CRON_SECRET", async () => {
+      process.env.CRON_SECRET = "super-secret-token";
+
+      const req = new Request("http://localhost/api/cron/recurring", {
+        method: "POST",
+        headers: { Authorization: "Bearer super-secret-token" },
+      });
+      const res = await recurringCron(req);
+
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.success).toBe(true);
     });
   });
 });
