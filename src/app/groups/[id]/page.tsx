@@ -60,6 +60,29 @@ export default function GroupDetailPage({
 
   useEffect(() => {
     loadGroup();
+
+    let eventSource: EventSource | null = null;
+    try {
+      eventSource = new EventSource(`/api/groups/${groupId}/events`);
+      eventSource.onmessage = (event) => {
+        try {
+          const payload = JSON.parse(event.data);
+          if (payload.type !== "connected") {
+            loadGroup();
+          }
+        } catch {
+          loadGroup();
+        }
+      };
+    } catch (err) {
+      console.warn("SSE connection error:", err);
+    }
+
+    return () => {
+      if (eventSource) {
+        eventSource.close();
+      }
+    };
   }, [groupId]);
 
   const handleRecordSettlement = async (
@@ -288,6 +311,57 @@ export default function GroupDetailPage({
                   </button>
                 </div>
               </div>
+
+              {/* Upcoming Recurring Charges */}
+              {group.expenses.some((e: any) => e.isRecurring) && (
+                <div className="border border-amber-200 dark:border-amber-900/50 rounded bg-amber-50/50 dark:bg-amber-950/20 p-3.5 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-mono uppercase tracking-wider text-amber-800 dark:text-amber-300 font-semibold flex items-center gap-1.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+                      Upcoming Recurring Charges
+                    </span>
+                    <span className="text-[10px] font-mono text-amber-700/80 dark:text-amber-400">
+                      Auto-generated via scheduler
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {group.expenses
+                      .filter((e: any) => e.isRecurring)
+                      .map((exp: any) => {
+                        const lastDate = new Date(exp.date);
+                        const nextDate = new Date(lastDate);
+                        if (exp.recurringPeriod === "weekly") {
+                          nextDate.setDate(nextDate.getDate() + 7);
+                        } else {
+                          nextDate.setMonth(nextDate.getMonth() + 1);
+                        }
+                        return (
+                          <div
+                            key={exp.id}
+                            className="p-2.5 rounded border border-amber-200/80 dark:border-amber-900/40 bg-white/80 dark:bg-dark-surface/80 flex items-center justify-between text-xs"
+                          >
+                            <div>
+                              <div className="font-medium text-light-textPrimary dark:text-dark-textPrimary">
+                                {exp.description}
+                              </div>
+                              <div className="text-[10px] font-mono text-light-textMuted">
+                                Next: {nextDate.toLocaleDateString("en-US", { month: "short", day: "numeric" })} • {exp.recurringPeriod || "monthly"}
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <div className="font-mono font-medium text-light-textPrimary dark:text-dark-textPrimary">
+                                {formatCurrency(exp.amount, group.currency)}
+                              </div>
+                              <div className="text-[10px] text-light-textMuted">
+                                Payer: {exp.payer?.name?.split(" ")[0] || "Member"}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                  </div>
+                </div>
+              )}
 
               {/* Spreadsheet-like expenses table */}
               <div className="border border-light-border dark:border-dark-border rounded divide-y divide-light-border dark:divide-dark-border bg-light-surface dark:bg-dark-surface">

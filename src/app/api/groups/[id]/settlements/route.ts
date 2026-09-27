@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser, authorizeGroupAccess } from "@/lib/auth";
+import { broadcastGroupUpdate } from "@/lib/realtime";
 import { z } from "zod";
 
 const createSettlementSchema = z.object({
@@ -59,6 +60,8 @@ export async function POST(
         }),
       },
     });
+
+    await broadcastGroupUpdate(groupId, { type: "settlement_recorded", settlementId: settlement.id });
 
     return NextResponse.json({ success: true, settlement }, { status: 201 });
   } catch (err: any) {

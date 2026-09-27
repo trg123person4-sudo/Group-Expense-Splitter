@@ -9,6 +9,7 @@ import {
   calculateSharesSplit,
   calculateItemizedSplit,
 } from "@/lib/split-calculator";
+import { broadcastGroupUpdate } from "@/lib/realtime";
 
 const createExpenseSchema = z.object({
   description: z.string().min(1, "Description is required"),
@@ -196,6 +197,8 @@ export async function POST(
     if (notifications.length > 0) {
       await prisma.notification.createMany({ data: notifications });
     }
+
+    await broadcastGroupUpdate(groupId, { type: "expense_created", expenseId: expense.id });
 
     return NextResponse.json({ success: true, expense }, { status: 201 });
   } catch (err: any) {
