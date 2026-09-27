@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { getToken } from "next-auth/jwt";
+import { getAuthSecret } from "@/lib/auth-secret";
 
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
-  const secret = process.env.NEXTAUTH_SECRET || "tally-super-secret-jwt-key-for-development-32chars";
+  const secret = getAuthSecret();
   const token = await getToken({ req, secret });
 
   const isAuthPage = pathname.startsWith("/login") || pathname.startsWith("/signup");

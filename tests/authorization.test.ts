@@ -334,4 +334,46 @@ describe("Route Authorization & Security Tests", () => {
       expect(json.success).toBe(true);
     });
   });
+
+  describe("NextAuth Secret Production Safety (src/lib/auth-secret.ts)", () => {
+    const originalEnv = process.env.NODE_ENV;
+    const originalSecret = process.env.NEXTAUTH_SECRET;
+
+    afterEach(() => {
+      process.env.NODE_ENV = originalEnv;
+      process.env.NEXTAUTH_SECRET = originalSecret;
+    });
+
+    it("allows dev fallback placeholder when not in production", async () => {
+      process.env.NODE_ENV = "development";
+      delete process.env.NEXTAUTH_SECRET;
+
+      const { getAuthSecret, DEV_SECRET_PLACEHOLDER } = await import("../src/lib/auth-secret");
+      expect(getAuthSecret()).toBe(DEV_SECRET_PLACEHOLDER);
+    });
+
+    it("throws fatal startup error in production when NEXTAUTH_SECRET is unset", async () => {
+      process.env.NODE_ENV = "production";
+      delete process.env.NEXTAUTH_SECRET;
+
+      const { getAuthSecret } = await import("../src/lib/auth-secret");
+      expect(() => getAuthSecret()).toThrowError(/NEXTAUTH_SECRET must be configured/);
+    });
+
+    it("throws fatal startup error in production when NEXTAUTH_SECRET is the dev placeholder", async () => {
+      process.env.NODE_ENV = "production";
+      const { DEV_SECRET_PLACEHOLDER, getAuthSecret } = await import("../src/lib/auth-secret");
+      process.env.NEXTAUTH_SECRET = DEV_SECRET_PLACEHOLDER;
+
+      expect(() => getAuthSecret()).toThrowError(/Refusing to run with missing secret or default/);
+    });
+
+    it("succeeds in production when a secure custom secret is configured", async () => {
+      process.env.NODE_ENV = "production";
+      process.env.NEXTAUTH_SECRET = "a-very-secure-random-32-char-production-secret!";
+
+      const { getAuthSecret } = await import("../src/lib/auth-secret");
+      expect(getAuthSecret()).toBe("a-very-secure-random-32-char-production-secret!");
+    });
+  });
 });
