@@ -4,7 +4,7 @@ import { getCurrentUser, authorizeGroupAccess } from "@/lib/auth";
 import { getSettlementSummary } from "@/lib/settlement";
 
 export async function GET(
-  req: Request,
+  _req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id: groupId } = await params;
@@ -70,4 +70,96 @@ export async function GET(
     totalSpent: Math.round(totalSpent * 100) / 100,
     settlementSummary,
   });
+}
+
+export async function PATCH(
+  req: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const user = await getCurrentUser();
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const { id: groupId } = await params;
+    const membership = await authorizeGroupAccess(groupId, user.id);
+    if (!membership) {
+      return NextResponse.json({ error: "Forbidden: Not a group member" }, { status: 403 });
+    }
+
+    // Admin role enforcement
+    if (membership.role !== "admin") {
+      return NextResponse.json({ error: "Forbidden: Admin access required to update group settings or remove members" }, { status: 403 });
+    }
+
+    const body = await req.json();
+    const { name, currency, budgetLimit, removeUserId } = body;
+
+    // Handle removing a member from the group
+    if (removeUserId) {
+      if (removeUserId === user.id) {
+        return NextResponse.json({ error: "Admins cannot remove themselves. Transfer admin role or delete group instead." }, { status: 400 });
+      }
+
+      await prisma.groupMember.deleteMany({
+        where: {
+          groupId,
+          userId: removeUserId,
+        },
+      });
+
+      return NextResponse.json({ message: "Member removed successfully" });
+    }
+
+    const updateData: any = {};
+    if (name && typeof name === "string") updateData.name = name.trim();
+    if (currency && typeof currency === "string") updateData.currency = currency.trim();
+    if (budgetLimit !== undefined) updateData.budgetLimit = budgetLimit === null ? null : Number(budgetLimit);
+
+    const updated = await prisma.group.update({
+      where: { id: groupId },
+      data: updateData,
+      include: {
+        members: { include: { user: true } },
+      },
+    });
+
+    return NextResponse.json({ group: updated });
+  } catch (err: any) {
+    console.error("Update group error:", err);
+    return NextResponse.json({ error: err.message || "Failed to update group" }, { status: 500 });
+  }
+}
+
+export async function DELETE(
+  _req: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const user = await getCurrentUser();
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const { id: groupId } = await params;
+    const membership = await authorizeGroupAccess(groupId, user.id);
+    if (!membership) {
+      return NextResponse.json({ error: "Forbidden: Not a group member" }, { status: 403 });
+    }
+
+    // Admin role enforcement
+    if (membership.role !== "admin") {
+      return NextResponse.json({ error: "Forbidden: Only group admins can delete or archive a group" }, { status: 403 });
+    }
+
+    await prisma.group.delete({
+      where: { id: groupId },
+    });
+
+    return NextResponse.json({ success: true, message: "Group deleted successfully" });
+  } catch (err: any) {
+    console.error("Delete group error:", err);
+    return NextResponse.json({ error: err.message || "Failed to delete group" }, { status: 500 });
+  }
 }
