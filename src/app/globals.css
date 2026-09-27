@@ -1,0 +1,66 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --bg-base: #F9F9F8;
+    --text-primary: #141516;
+    --border-hairline: #E4E4E1;
+  }
+
+  .dark {
+    --bg-base: #101112;
+    --text-primary: #ECECEC;
+    --border-hairline: #282A2D;
+  }
+
+  body {
+    background-color: var(--bg-base);
+    color: var(--text-primary);
+    font-family: var(--font-plus-jakarta), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Financial figures formatting */
+  .tabular-nums {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/* Hairline borders */
+.hairline-b {
+  border-bottom: 1px solid var(--border-hairline);
+}
+
+.hairline-t {
+  border-top: 1px solid var(--border-hairline);
+}
+
+.hairline {
+  border: 1px solid var(--border-hairline);
+}
+
+/* Restrained scrollbar */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #D8D8D5;
+  border-radius: 4px;
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  background: #2D3033;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #C84420;
+}
