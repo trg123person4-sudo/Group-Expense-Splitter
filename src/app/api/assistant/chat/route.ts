@@ -10,7 +10,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const rateResult = checkRateLimit(`assistant:${user.id}`, { limit: 10, windowMs: 60 * 1000 });
+    const rateResult = await checkRateLimit(`assistant:${user.id}`, { limit: 10, windowMs: 60 * 1000 });
     if (!rateResult.success) {
       return NextResponse.json(
         { error: "Rate limit exceeded. Please wait before sending more queries." },

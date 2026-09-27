@@ -10,7 +10,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Unauthorized. Please sign in." }, { status: 401 });
     }
 
-    const rateResult = checkRateLimit(`ocr:${user.id}`, { limit: 10, windowMs: 60 * 1000 });
+    const rateResult = await checkRateLimit(`ocr:${user.id}`, { limit: 10, windowMs: 60 * 1000 });
     if (!rateResult.success) {
       return NextResponse.json(
         { error: "Rate limit exceeded. Receipt OCR processing is limited to 10 requests per minute." },

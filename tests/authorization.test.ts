@@ -254,22 +254,22 @@ describe("Route Authorization & Security Tests", () => {
   });
 
   describe("Rate Limiter Unit Mechanics", () => {
-    it("tracks sliding window correctly and resets", () => {
+    it("tracks sliding window correctly and resets", async () => {
       const id = "test-client";
-      const res1 = checkRateLimit(id, { limit: 2, windowMs: 1000 });
+      const res1 = await checkRateLimit(id, { limit: 2, windowMs: 1000 });
       expect(res1.success).toBe(true);
       expect(res1.remaining).toBe(1);
 
-      const res2 = checkRateLimit(id, { limit: 2, windowMs: 1000 });
+      const res2 = await checkRateLimit(id, { limit: 2, windowMs: 1000 });
       expect(res2.success).toBe(true);
       expect(res2.remaining).toBe(0);
 
-      const res3 = checkRateLimit(id, { limit: 2, windowMs: 1000 });
+      const res3 = await checkRateLimit(id, { limit: 2, windowMs: 1000 });
       expect(res3.success).toBe(false);
       expect(res3.remaining).toBe(0);
 
       resetRateLimits();
-      const res4 = checkRateLimit(id, { limit: 2, windowMs: 1000 });
+      const res4 = await checkRateLimit(id, { limit: 2, windowMs: 1000 });
       expect(res4.success).toBe(true);
       expect(res4.remaining).toBe(1);
     });
