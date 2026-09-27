@@ -8,9 +8,11 @@ export const DEV_SECRET_PLACEHOLDER = "tally-super-secret-jwt-key-for-developmen
 export function getAuthSecret(): string {
   const secret = process.env.NEXTAUTH_SECRET;
   const isProduction = process.env.NODE_ENV === "production";
+  const isBuildPhase = process.env.NEXT_PHASE === "phase-production-build";
 
   if (
     isProduction &&
+    !isBuildPhase &&
     (!secret || secret === DEV_SECRET_PLACEHOLDER || secret.includes("super-secret-jwt-key"))
   ) {
     throw new Error(
