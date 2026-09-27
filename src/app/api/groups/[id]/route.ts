@@ -51,7 +51,7 @@ export async function GET(
 
   const membersForCalc = group.members.map((m) => ({
     id: m.user.id,
-    name: m.user.name,
+    name: m.user.name || "Member",
     avatarUrl: m.user.avatarUrl,
   }));
 

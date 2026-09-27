@@ -4,7 +4,7 @@ import { useState } from "react";
 import { ParsedReceipt, ParsedReceiptItem, SAMPLE_RECEIPTS } from "@/lib/receipt-parser";
 import { calculateItemizedSplit } from "@/lib/split-calculator";
 import { formatCurrency } from "@/lib/utils";
-import { Upload, X, Plus, Trash2, Check } from "lucide-react";
+import { Upload, X, Plus, Trash2, Check, AlertCircle, ArrowRight } from "lucide-react";
 
 interface Member {
   user: {
@@ -52,13 +52,30 @@ export function ReceiptSplitModal({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ samplePreset: presetKey }),
       });
-      const data: ParsedReceipt = await res.json();
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || "Failed to load preset receipt");
+        return;
+      }
       populateReceiptData(data);
     } catch (err: any) {
       setError("Failed to parse preset receipt");
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleManualEntry = () => {
+    setReceiptTitle("Manual Itemized Split");
+    setTax(0);
+    setTip(0);
+    const allIds = members.map((m) => m.user.id);
+    setItems([
+      { id: "item-1", name: "Line Item 1", price: 10.0, assignedUserIds: [...allIds] },
+      { id: "item-2", name: "Line Item 2", price: 15.0, assignedUserIds: [...allIds] },
+    ]);
+    setError(null);
+    setStep("assign");
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -70,7 +87,6 @@ export function ReceiptSplitModal({
     const reader = new FileReader();
     reader.onload = async () => {
       const base64 = reader.result as string;
-      setReceiptImage(base64);
 
       try {
         const res = await fetch("/api/receipts/parse", {
@@ -78,10 +94,22 @@ export function ReceiptSplitModal({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ imageBase64: base64 }),
         });
-        const data: ParsedReceipt = await res.json();
+        const data = await res.json();
+
+        if (!res.ok) {
+          setError(data.error || "Receipt parsing failed.");
+          return;
+        }
+
+        if (data.receiptImageUrl) {
+          setReceiptImage(data.receiptImageUrl);
+        } else {
+          setReceiptImage(base64);
+        }
+
         populateReceiptData(data);
-      } catch (err) {
-        setError("Error analyzing receipt image");
+      } catch (err: any) {
+        setError(err.message || "Error analyzing receipt image");
       } finally {
         setLoading(false);
       }
@@ -203,8 +231,21 @@ export function ReceiptSplitModal({
         </div>
 
         {error && (
-          <div className="p-3 rounded border border-debt/30 bg-debt/5 text-xs text-debt font-mono">
-            {error}
+          <div className="p-3.5 rounded border border-red-200 dark:border-red-900/50 bg-red-50 dark:bg-red-950/20 text-xs text-red-600 dark:text-red-400 space-y-2">
+            <div className="flex items-start gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+              <span className="leading-relaxed">{error}</span>
+            </div>
+            {step === "upload" && (
+              <button
+                type="button"
+                onClick={handleManualEntry}
+                className="inline-flex items-center gap-1.5 px-3 py-1 rounded bg-red-100 hover:bg-red-200 dark:bg-red-900/40 dark:hover:bg-red-900/60 text-red-700 dark:text-red-300 font-medium text-xs transition-colors"
+              >
+                <span>Enter items manually instead</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </button>
+            )}
           </div>
         )}
 
@@ -227,6 +268,20 @@ export function ReceiptSplitModal({
                 JPG, PNG • Vision API extraction
               </span>
             </label>
+
+            <div className="flex items-center justify-between text-xs px-1">
+              <span className="text-light-textMuted dark:text-dark-textMuted text-[11px]">
+                No photo or offline?
+              </span>
+              <button
+                type="button"
+                onClick={handleManualEntry}
+                className="text-accent hover:underline font-medium text-xs inline-flex items-center gap-1"
+              >
+                <span>Enter items manually</span>
+                <ArrowRight className="w-3 h-3" />
+              </button>
+            </div>
 
             <div className="space-y-2">
               <span className="text-[10px] font-mono uppercase tracking-wider text-light-textMuted dark:text-dark-textMuted">

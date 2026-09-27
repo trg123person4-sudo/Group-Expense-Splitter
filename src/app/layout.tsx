@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Plus_Jakarta_Sans, Fraunces, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
+import { Providers } from "@/components/Providers";
 
 const plusJakarta = Plus_Jakarta_Sans({
   subsets: ["latin"],
@@ -38,7 +39,7 @@ export default function RootLayout({
       suppressHydrationWarning
     >
       <body className="min-h-screen bg-sand-100 dark:bg-darkbg-base text-stone-900 dark:text-stone-100 font-sans selection:bg-terracotta-200 selection:text-terracotta-900 pb-16 sm:pb-0">
-        {children}
+        <Providers>{children}</Providers>
       </body>
     </html>
   );

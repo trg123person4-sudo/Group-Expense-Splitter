@@ -9,11 +9,17 @@ datasource db {
 
 model User {
   id              String                  @id @default(cuid())
-  name            String
+  name            String?
   email           String                  @unique
+  emailVerified   DateTime?
+  password        String?
   avatarUrl       String?
+  image           String?
   defaultCurrency String                  @default("USD")
   createdAt       DateTime                @default(now())
+
+  accounts        Account[]
+  sessions        Session[]
   memberships     GroupMember[]
   expensesPaid    Expense[]               @relation("ExpensesPaid")
   splits          ExpenseSplit[]
@@ -22,6 +28,42 @@ model User {
   settlementsRcvd Settlement[]            @relation("SettlementTo")
   comments        Comment[]
   notifications   Notification[]
+  invitationsSent Invitation[]            @relation("InvitedByUser")
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
 }
 
 model Group {
@@ -35,6 +77,7 @@ model Group {
   members     GroupMember[]
   expenses    Expense[]
   settlements Settlement[]
+  invitations Invitation[]
 }
 
 model GroupMember {
@@ -47,6 +90,21 @@ model GroupMember {
   user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([groupId, userId])
+}
+
+model Invitation {
+  id        String   @id @default(cuid())
+  groupId   String
+  email     String
+  token     String   @unique
+  invitedBy String?
+  status    String   @default("pending") // pending, accepted, expired, cancelled
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  group     Group    @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  inviter   User?    @relation("InvitedByUser", fields: [invitedBy], references: [id])
+
+  @@unique([groupId, email])
 }
 
 model Expense {

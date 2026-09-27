@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 import { useState, useEffect } from "react";
-import { UserPersonaSwitcher } from "./UserPersonaSwitcher";
-import { Plus, Moon, Sun } from "lucide-react";
+import { useSession, signOut } from "next-auth/react";
+import { Plus, Moon, Sun, LogOut, User as UserIcon } from "lucide-react";
 
 export function Navbar({ onNewGroup }: { onNewGroup?: () => void }) {
+  const { data: session } = useSession();
   const [isDark, setIsDark] = useState(false);
 
   useEffect(() => {
@@ -41,7 +42,30 @@ export function Navbar({ onNewGroup }: { onNewGroup?: () => void }) {
 
         {/* Right Actions */}
         <div className="flex items-center gap-2 sm:gap-3">
-          <UserPersonaSwitcher />
+          {session?.user ? (
+            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5 px-2 py-1 rounded border border-light-border dark:border-dark-border bg-light-subtle dark:bg-dark-subtle text-xs">
+                <UserIcon className="w-3.5 h-3.5 text-light-textMuted dark:text-dark-textMuted" />
+                <span className="font-medium text-light-textPrimary dark:text-dark-textPrimary truncate max-w-[120px]">
+                  {session.user.name || session.user.email}
+                </span>
+              </div>
+              <button
+                onClick={() => signOut({ callbackUrl: "/login" })}
+                className="p-1.5 rounded border border-light-border dark:border-dark-border text-light-textSecondary dark:text-dark-textSecondary hover:bg-light-subtle dark:hover:bg-dark-subtle hover:text-red-600 dark:hover:text-red-400 transition-colors"
+                title="Log out"
+              >
+                <LogOut className="w-3.5 h-3.5" strokeWidth={1.5} />
+              </button>
+            </div>
+          ) : (
+            <Link
+              href="/login"
+              className="text-xs font-medium px-2.5 py-1 rounded border border-light-border dark:border-dark-border text-light-textPrimary dark:text-dark-textPrimary hover:bg-light-subtle dark:hover:bg-dark-subtle"
+            >
+              Sign In
+            </Link>
+          )}
 
           <button
             onClick={toggleDarkMode}

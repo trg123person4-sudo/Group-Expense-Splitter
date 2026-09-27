@@ -1,4 +1,5 @@
 import { PrismaClient } from "@prisma/client";
+import bcrypt from "bcryptjs";
 
 const prisma = new PrismaClient();
 
@@ -6,6 +7,10 @@ async function main() {
   console.log("Seeding database with realistic demo data...");
 
   // Clean existing data
+  await prisma.invitation.deleteMany();
+  await prisma.account.deleteMany();
+  await prisma.session.deleteMany();
+  await prisma.verificationToken.deleteMany();
   await prisma.notification.deleteMany();
   await prisma.comment.deleteMany();
   await prisma.settlement.deleteMany();
@@ -17,12 +22,15 @@ async function main() {
   await prisma.group.deleteMany();
   await prisma.user.deleteMany();
 
+  const hashedPassword = await bcrypt.hash("password123", 10);
+
   // 1. Create Users
   const alex = await prisma.user.create({
     data: {
       id: "user-alex",
       name: "Alex Rivera",
       email: "alex@tally.local",
+      password: hashedPassword,
       avatarUrl: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80",
       defaultCurrency: "USD",
     },
@@ -33,6 +41,7 @@ async function main() {
       id: "user-sarah",
       name: "Sarah Chen",
       email: "sarah@tally.local",
+      password: hashedPassword,
       avatarUrl: "https://images.unsplash.com/photo-1517841905240-472988babdf9?w=150&auto=format&fit=crop&q=80",
       defaultCurrency: "USD",
     },
@@ -43,6 +52,7 @@ async function main() {
       id: "user-david",
       name: "David Miller",
       email: "david@tally.local",
+      password: hashedPassword,
       avatarUrl: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80",
       defaultCurrency: "USD",
     },
@@ -53,6 +63,7 @@ async function main() {
       id: "user-priya",
       name: "Priya Patel",
       email: "priya@tally.local",
+      password: hashedPassword,
       avatarUrl: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150&auto=format&fit=crop&q=80",
       defaultCurrency: "USD",
     },

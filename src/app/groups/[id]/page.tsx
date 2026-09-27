@@ -315,7 +315,7 @@ export default function GroupDetailPage({
             <SettlementGraph
               members={group.members.map((m: any) => ({
                 id: m.user.id,
-                name: m.user.name,
+                name: m.user.name || "Member",
                 avatarUrl: m.user.avatarUrl,
               }))}
               netBalances={settlementSummary.netBalances}

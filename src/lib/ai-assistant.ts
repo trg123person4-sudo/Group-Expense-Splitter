@@ -1,33 +1,33 @@
 import { prisma } from "./prisma";
 import { calculateNetBalances, simplifyDebts } from "./settlement";
+import Anthropic from "@anthropic-ai/sdk";
 
 export interface AssistantCitation {
   id: string;
   title: string;
   amount: number;
-  date?: string;
+  date: string | Date;
+  paidBy: string;
   category?: string;
-  paidBy?: string;
-  receiptUrl?: string | null;
-  items?: { name: string; price: number }[];
+  receiptUrl?: string;
 }
 
 export interface AssistantResponse {
   answer: string;
   citations: AssistantCitation[];
-  toolExecuted: string;
-  data: any;
+  toolExecuted?: string;
+  data?: any;
 }
 
 /**
- * Tool 1: Get User Balances & Pairwise IOUs
+ * Tool 1: Get User Net Balance & Direct Counterparty Debts
  */
 export async function toolGetUserBalance(groupId: string, userId: string, targetUserName?: string) {
   const group = await prisma.group.findUnique({
     where: { id: groupId },
     include: {
       members: { include: { user: true } },
-      expenses: { include: { splits: true, payer: true } },
+      expenses: { include: { splits: true } },
       settlements: true,
     },
   });
@@ -36,7 +36,7 @@ export async function toolGetUserBalance(groupId: string, userId: string, target
 
   const members = group.members.map((m) => ({
     id: m.user.id,
-    name: m.user.name,
+    name: m.user.name || "Member",
     avatarUrl: m.user.avatarUrl,
   }));
 
@@ -47,8 +47,8 @@ export async function toolGetUserBalance(groupId: string, userId: string, target
 
   let targetUser = null;
   if (targetUserName) {
-    const search = targetUserName.toLowerCase();
-    targetUser = members.find((m) => m.name.toLowerCase().includes(search));
+    const search = targetUserName.toLowerCase().trim();
+    targetUser = members.find((m) => (m.name || "").toLowerCase().includes(search));
   }
 
   // Relevant simplified transactions involving this user
@@ -58,54 +58,62 @@ export async function toolGetUserBalance(groupId: string, userId: string, target
 
   return {
     userNetBalance: myNet,
-    userOwesTotal: myNet < 0 ? Math.abs(myNet) : 0,
-    userIsOwedTotal: myNet > 0 ? myNet : 0,
+    currency: group.currency,
     targetUser: targetUser ? { id: targetUser.id, name: targetUser.name } : null,
-    simplifiedSettlements: myTransactions,
-    allBalances: netBalances,
-  };
-}
-
-/**
- * Tool 2: Category Spending Breakdown
- */
-export async function toolGetCategorySpending(groupId: string, targetCategory?: string) {
-  const expenses = await prisma.expense.findMany({
-    where: {
-      groupId,
-      ...(targetCategory ? { category: { equals: targetCategory.toLowerCase() } } : {}),
-    },
-    include: { payer: true },
-    orderBy: { date: "desc" },
-  });
-
-  const categoryTotals: Record<string, number> = {};
-  let totalSpent = 0;
-
-  for (const exp of expenses) {
-    categoryTotals[exp.category] = (categoryTotals[exp.category] || 0) + exp.amount;
-    totalSpent += exp.amount;
-  }
-
-  return {
-    totalSpent: Math.round(totalSpent * 100) / 100,
-    categoryTotals,
-    expenses: expenses.map((e) => ({
-      id: e.id,
-      description: e.description,
-      amount: e.amount,
-      category: e.category,
-      paidByName: e.payer.name,
-      date: e.date.toISOString().split("T")[0],
-      receiptImageUrl: e.receiptImageUrl,
+    simplifiedSettlements: myTransactions.map((t) => ({
+      fromId: t.fromUser,
+      fromName: userMap.get(t.fromUser)?.name || "Unknown",
+      toId: t.toUser,
+      toName: userMap.get(t.toUser)?.name || "Unknown",
+      amount: t.amount,
+      iOweThem: t.fromUser === userId,
     })),
   };
 }
 
 /**
- * Tool 3: Search Expenses & Receipts
+ * Tool 2: Get Category Breakdown & Spending Totals
  */
-export async function toolSearchExpenses(groupId: string, query?: string) {
+export async function toolGetCategorySpending(groupId: string, category?: string) {
+  const whereClause: any = { groupId };
+  if (category) {
+    whereClause.category = category.toLowerCase().trim();
+  }
+
+  const expenses = await prisma.expense.findMany({
+    where: whereClause,
+    include: { payer: true },
+    orderBy: { date: "desc" },
+  });
+
+  const categoryTotals: Record<string, number> = {};
+  let totalAmount = 0;
+
+  for (const exp of expenses) {
+    categoryTotals[exp.category] = (categoryTotals[exp.category] || 0) + exp.amount;
+    totalAmount += exp.amount;
+  }
+
+  return {
+    totalSpent: totalAmount,
+    categoryTotals,
+    categoryFiltered: category || null,
+    expenses: expenses.map((e) => ({
+      id: e.id,
+      description: e.description,
+      amount: e.amount,
+      category: e.category,
+      paidByName: e.payer.name || "Member",
+      receiptImageUrl: e.receiptImageUrl || undefined,
+      date: e.date,
+    })),
+  };
+}
+
+/**
+ * Tool 3: Search Expenses by Keyword or Description
+ */
+export async function toolSearchExpenses(groupId: string, query?: string, limit: number = 10) {
   const expenses = await prisma.expense.findMany({
     where: {
       groupId,
@@ -124,6 +132,7 @@ export async function toolSearchExpenses(groupId: string, query?: string) {
       splits: { include: { user: true } },
     },
     orderBy: { date: "desc" },
+    take: limit,
   });
 
   return {
@@ -133,16 +142,17 @@ export async function toolSearchExpenses(groupId: string, query?: string) {
       description: e.description,
       amount: e.amount,
       category: e.category,
-      paidByName: e.payer.name,
-      date: e.date.toISOString().split("T")[0],
-      receiptImageUrl: e.receiptImageUrl,
-      items: e.items.map((i) => ({ name: i.name, price: i.price })),
+      paidByName: e.payer.name || "Member",
+      receiptImageUrl: e.receiptImageUrl || undefined,
+      date: e.date,
+      splitType: e.splitType,
+      itemsCount: e.items.length,
     })),
   };
 }
 
 /**
- * Tool 4: Settle-up Plan
+ * Tool 4: Get Settlement Plan ($O(n-1)$ Debt Simplification)
  */
 export async function toolGetSettlementPlan(groupId: string) {
   const group = await prisma.group.findUnique({
@@ -158,62 +168,280 @@ export async function toolGetSettlementPlan(groupId: string) {
 
   const members = group.members.map((m) => ({
     id: m.user.id,
-    name: m.user.name,
+    name: m.user.name || "Member",
     avatarUrl: m.user.avatarUrl,
   }));
 
+  const userMap = new Map(members.map((m) => [m.id, m]));
   const netBalances = calculateNetBalances(members, group.expenses, group.settlements);
   const transactions = simplifyDebts(members, netBalances);
 
   return {
+    currency: group.currency,
     netBalances,
-    transactions,
-    totalToSettle: transactions.reduce((sum, t) => sum + t.amount, 0),
+    transactions: transactions.map((t) => ({
+      fromId: t.fromUser,
+      fromName: userMap.get(t.fromUser)?.name || "Unknown",
+      toId: t.toUser,
+      toName: userMap.get(t.toUser)?.name || "Unknown",
+      amount: t.amount,
+    })),
   };
 }
 
+const CLAUDE_TOOLS: Anthropic.Tool[] = [
+  {
+    name: "getUserBalance",
+    description: "Look up user net balance, who they owe, or who owes them in the group. Supports querying specific member by name.",
+    input_schema: {
+      type: "object",
+      properties: {
+        targetUserName: {
+          type: "string",
+          description: "Optional name of the member to check balances with (e.g. 'Sarah', 'David'). Can be any group member.",
+        },
+      },
+    },
+  },
+  {
+    name: "getCategorySpending",
+    description: "Get total spending broken down by category (food, travel, lodging, entertainment, utilities, groceries, shopping) or overall group spending.",
+    input_schema: {
+      type: "object",
+      properties: {
+        category: {
+          type: "string",
+          description: "Optional category filter like 'food', 'travel', 'lodging', 'utilities', etc.",
+        },
+      },
+    },
+  },
+  {
+    name: "searchExpenses",
+    description: "Search specific expense records by description or keyword, or list recent expenses in the group.",
+    input_schema: {
+      type: "object",
+      properties: {
+        query: {
+          type: "string",
+          description: "Keyword or description to search for (e.g. 'dinner', 'villa', 'flight')",
+        },
+        limit: {
+          type: "number",
+          description: "Maximum number of expenses to retrieve (default 10)",
+        },
+      },
+    },
+  },
+  {
+    name: "getSettlementPlan",
+    description: "Get the complete debt-simplification settlement plan showing all minimal optimal payments needed to settle all group debts.",
+    input_schema: {
+      type: "object",
+      properties: {},
+    },
+  },
+];
+
 /**
- * Core Assistant Reasoner: Maps question to database tool, runs query, and builds answer with citations.
+ * Main Ledger Assistant Dispatcher
+ * Calls Claude with dynamic tool definitions. Generates final response from genuine tool output.
  */
-export async function answerLedgerQuestion(
+export const answerLedgerQuestion = queryLedgerAssistant;
+
+export async function queryLedgerAssistant(
   groupId: string,
   currentUserId: string,
   userPrompt: string
 ): Promise<AssistantResponse> {
+  const group = await prisma.group.findUnique({
+    where: { id: groupId },
+    include: {
+      members: { include: { user: true } },
+    },
+  });
+
+  if (!group) throw new Error("Group not found");
+
+  const currentUser = group.members.find((m) => m.user.id === currentUserId)?.user;
+  const currentUserName = currentUser?.name || "Current User";
+  const memberNames = group.members.map((m) => m.user.name || "Member").join(", ");
+
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+
+  if (apiKey) {
+    try {
+      const anthropic = new Anthropic({ apiKey });
+
+      const systemPrompt = `You are Tally's verified ledger assistant.
+You have access to real financial database query tools for the group "${group.name}".
+Currency: ${group.currency}
+Current logged-in user: ${currentUserName} (ID: ${currentUserId})
+All group members: ${memberNames}
+
+Always choose the appropriate tool(s) to answer financial questions accurately.
+Never fabricate or hallucinate financial numbers. All figures must be grounded in tool results.
+Explain the answer clearly and concisely in natural language based on the returned tool data.`;
+
+      const initialMessage = await anthropic.messages.create({
+        model: "claude-3-5-sonnet-20241022",
+        max_tokens: 1024,
+        system: systemPrompt,
+        messages: [{ role: "user", content: userPrompt }],
+        tools: CLAUDE_TOOLS,
+      });
+
+      const toolUseBlock = initialMessage.content.find((c) => c.type === "tool_use");
+
+      if (toolUseBlock && toolUseBlock.type === "tool_use") {
+        const toolName = toolUseBlock.name;
+        const toolInput = toolUseBlock.input as any;
+
+        let toolResult: any = null;
+        const citations: AssistantCitation[] = [];
+
+        if (toolName === "getUserBalance") {
+          toolResult = await toolGetUserBalance(groupId, currentUserId, toolInput.targetUserName);
+          const recent = await toolSearchExpenses(groupId, undefined, 2);
+          for (const exp of recent.expenses) {
+            citations.push({
+              id: exp.id,
+              title: exp.description,
+              amount: exp.amount,
+              date: exp.date,
+              paidBy: exp.paidByName,
+              receiptUrl: exp.receiptImageUrl,
+            });
+          }
+        } else if (toolName === "getCategorySpending") {
+          toolResult = await toolGetCategorySpending(groupId, toolInput.category);
+          for (const exp of toolResult.expenses.slice(0, 5)) {
+            citations.push({
+              id: exp.id,
+              title: exp.description,
+              amount: exp.amount,
+              date: exp.date,
+              paidBy: exp.paidByName,
+              category: exp.category,
+              receiptUrl: exp.receiptImageUrl,
+            });
+          }
+        } else if (toolName === "searchExpenses") {
+          toolResult = await toolSearchExpenses(groupId, toolInput.query, toolInput.limit || 10);
+          for (const exp of toolResult.expenses) {
+            citations.push({
+              id: exp.id,
+              title: exp.description,
+              amount: exp.amount,
+              date: exp.date,
+              paidBy: exp.paidByName,
+              category: exp.category,
+              receiptUrl: exp.receiptImageUrl,
+            });
+          }
+        } else if (toolName === "getSettlementPlan") {
+          toolResult = await toolGetSettlementPlan(groupId);
+          const recent = await toolSearchExpenses(groupId, undefined, 2);
+          for (const exp of recent.expenses) {
+            citations.push({
+              id: exp.id,
+              title: exp.description,
+              amount: exp.amount,
+              date: exp.date,
+              paidBy: exp.paidByName,
+              receiptUrl: exp.receiptImageUrl,
+            });
+          }
+        }
+
+        // Send tool results back to Claude for final synthesized response
+        const followup = await anthropic.messages.create({
+          model: "claude-3-5-sonnet-20241022",
+          max_tokens: 1024,
+          system: systemPrompt,
+          messages: [
+            { role: "user", content: userPrompt },
+            { role: "assistant", content: initialMessage.content },
+            {
+              role: "user",
+              content: [
+                {
+                  type: "tool_result",
+                  tool_use_id: toolUseBlock.id,
+                  content: JSON.stringify(toolResult),
+                },
+              ],
+            },
+          ],
+        });
+
+        const textBlock = followup.content.find((c) => c.type === "text");
+        const answer = textBlock && textBlock.type === "text" ? textBlock.text : "Processed request successfully.";
+
+        return {
+          answer,
+          citations,
+          toolExecuted: toolName,
+          data: toolResult,
+        };
+      } else {
+        const textBlock = initialMessage.content.find((c) => c.type === "text");
+        return {
+          answer: textBlock && textBlock.type === "text" ? textBlock.text : "How can I help you analyze the group ledger?",
+          citations: [],
+        };
+      }
+    } catch (err: any) {
+      console.warn("Claude tool calling error, falling back to local grounded execution:", err.message);
+    }
+  }
+
+  // Grounded database execution fallback if no ANTHROPIC_API_KEY is configured
+  return executeGroundedFallback(groupId, currentUserId, userPrompt, group.members);
+}
+
+/**
+ * Safe grounded fallback that extracts real member names and database queries
+ * without keyword matching on hardcoded personas.
+ */
+async function executeGroundedFallback(
+  groupId: string,
+  currentUserId: string,
+  userPrompt: string,
+  members: any[]
+): Promise<AssistantResponse> {
   const lower = userPrompt.toLowerCase();
 
-  // 1. Balance / Owe question (e.g., "how much do I owe Sarah", "what's my balance", "who owes what")
-  if (lower.includes("owe") || lower.includes("balance") || lower.includes("settle") || lower.includes("due")) {
-    // Check if a specific name is mentioned
-    const names = ["sarah", "alex", "david", "priya"];
-    const mentionedName = names.find((n) => lower.includes(n));
+  // 1. Detect if any actual group member's name was mentioned
+  const mentionedMember = members.find((m) => {
+    const firstName = (m.user.name || "").split(" ")[0].toLowerCase();
+    return firstName.length > 1 && lower.includes(firstName);
+  });
 
-    const balanceData = await toolGetUserBalance(groupId, currentUserId, mentionedName);
+  if (lower.includes("owe") || lower.includes("balance") || lower.includes("net") || mentionedMember) {
+    const balanceData = await toolGetUserBalance(groupId, currentUserId, mentionedMember?.user.name);
     const citations: AssistantCitation[] = [];
-
-    // Find any relevant expenses to cite
-    const recent = await toolSearchExpenses(groupId);
-    if (recent.expenses.length > 0) {
+    const recent = await toolSearchExpenses(groupId, undefined, 2);
+    for (const exp of recent.expenses) {
       citations.push({
-        id: recent.expenses[0].id,
-        title: recent.expenses[0].description,
-        amount: recent.expenses[0].amount,
-        date: recent.expenses[0].date,
-        paidBy: recent.expenses[0].paidByName,
-        receiptUrl: recent.expenses[0].receiptImageUrl,
+        id: exp.id,
+        title: exp.description,
+        amount: exp.amount,
+        date: exp.date,
+        paidBy: exp.paidByName,
+        receiptUrl: exp.receiptImageUrl,
       });
     }
 
-    if (mentionedName && balanceData.targetUser) {
-      // Find direct simplified settlement involving target user
+    if (mentionedMember && balanceData.targetUser) {
       const txn = balanceData.simplifiedSettlements.find(
         (t) =>
-          (t.fromUser === currentUserId && t.toUser === balanceData.targetUser?.id) ||
-          (t.toUser === currentUserId && t.fromUser === balanceData.targetUser?.id)
+          (t.fromId === currentUserId && t.toId === balanceData.targetUser?.id) ||
+          (t.toId === currentUserId && t.fromId === balanceData.targetUser?.id)
       );
 
       if (txn) {
-        if (txn.fromUser === currentUserId) {
+        if (txn.fromId === currentUserId) {
           return {
             answer: `According to the verified ledger and simplified debt calculation, you currently owe **${balanceData.targetUser.name}** **$${txn.amount.toFixed(2)}**.`,
             citations,
@@ -230,7 +458,7 @@ export async function answerLedgerQuestion(
         }
       } else {
         return {
-          answer: `Under our debt simplification algorithm, you have **$0.00** direct debt with **${balanceData.targetUser.name}**. Your overall net group balance is **${balanceData.userNetBalance >= 0 ? `+$${balanceData.userNetBalance.toFixed(2)}` : `-$${Math.abs(balanceData.userNetBalance).toFixed(2)}`}**.`,
+          answer: `You and **${balanceData.targetUser.name}** are currently square. No direct settlement is needed between you two.`,
           citations,
           toolExecuted: "getUserBalance",
           data: balanceData,
@@ -238,8 +466,7 @@ export async function answerLedgerQuestion(
       }
     }
 
-    // General balance
-    const netFormatted = balanceData.userNetBalance >= 0
+    const netText = balanceData.userNetBalance >= 0
       ? `You are owed a total of **+$${balanceData.userNetBalance.toFixed(2)}** across the group.`
       : `You owe a total of **$${Math.abs(balanceData.userNetBalance).toFixed(2)}** to settle your share.`;
 
@@ -251,20 +478,19 @@ export async function answerLedgerQuestion(
       : `\n\nAll your balances are currently settled!`;
 
     return {
-      answer: `${netFormatted}${txnsSummary}`,
+      answer: `${netText}${txnsSummary}`,
       citations,
       toolExecuted: "getUserBalance",
       data: balanceData,
     };
   }
 
-  // 2. Spending / Category question (e.g. "what did we spend on food", "how much spent on lodging")
+  // 2. Spending / category question
   const categories = ["food", "travel", "lodging", "entertainment", "utilities", "groceries", "shopping"];
   const matchedCat = categories.find((c) => lower.includes(c));
 
   if (matchedCat || lower.includes("spend") || lower.includes("total") || lower.includes("cost") || lower.includes("expenses")) {
     const spendingData = await toolGetCategorySpending(groupId, matchedCat);
-
     const citations: AssistantCitation[] = spendingData.expenses.map((e) => ({
       id: e.id,
       title: e.description,
@@ -284,12 +510,8 @@ export async function answerLedgerQuestion(
         data: spendingData,
       };
     } else {
-      const breakdownText = Object.entries(spendingData.categoryTotals)
-        .map(([cat, amt]) => `• **${cat.toUpperCase()}**: $${amt.toFixed(2)}`)
-        .join("\n");
-
       return {
-        answer: `The group has recorded a total expenditure of **$${spendingData.totalSpent.toFixed(2)}**.\n\nCategory Breakdown:\n${breakdownText}`,
+        answer: `The total recorded expenditure for this group is **$${spendingData.totalSpent.toFixed(2)}** across ${spendingData.expenses.length} expense(s).`,
         citations,
         toolExecuted: "getCategorySpending",
         data: spendingData,
@@ -297,44 +519,28 @@ export async function answerLedgerQuestion(
     }
   }
 
-  // 3. Search / Query question (e.g., "who paid for the villa", "seafood receipt")
-  const searchResult = await toolSearchExpenses(groupId);
-  // Match query words
-  const words = lower.split(/\s+/).filter((w) => w.length > 3);
-  const matched = searchResult.expenses.filter((e) =>
-    words.some((w) => e.description.toLowerCase().includes(w) || e.category.toLowerCase().includes(w))
-  );
-
-  if (matched.length > 0) {
-    const top = matched[0];
-    const citations: AssistantCitation[] = [
-      {
-        id: top.id,
-        title: top.description,
-        amount: top.amount,
-        date: top.date,
-        paidBy: top.paidByName,
-        category: top.category,
-        receiptUrl: top.receiptImageUrl,
-        items: top.items,
-      },
-    ];
+  // 3. Settle plan
+  if (lower.includes("settle") || lower.includes("plan") || lower.includes("pay whom") || lower.includes("graph")) {
+    const plan = await toolGetSettlementPlan(groupId);
+    const txns = plan.transactions;
+    const summary = txns.length > 0
+      ? `Here is the optimal $O(n-1)$ settlement plan to settle all group debts in ${txns.length} payment(s):\n\n` +
+        txns.map((t) => `• **${t.fromName}** pays **${t.toName}** **$${t.amount.toFixed(2)}**`).join("\n")
+      : "All debts are completely settled! No payments needed.";
 
     return {
-      answer: `Found **${top.description}**: total of **$${top.amount.toFixed(2)}** paid by **${top.paidByName}** on ${top.date}.${
-        top.items.length > 0 ? ` It includes ${top.items.length} line items (e.g., ${top.items.map((i) => i.name).slice(0, 2).join(", ")}).` : ""
-      }`,
-      citations,
-      toolExecuted: "searchExpenses",
-      data: top,
+      answer: summary,
+      citations: [],
+      toolExecuted: "getSettlementPlan",
+      data: plan,
     };
   }
 
-  // Default: Fallback to general group overview
-  const overview = await toolSearchExpenses(groupId);
+  // 4. Default search
+  const results = await toolSearchExpenses(groupId, undefined, 5);
   return {
-    answer: `Here is the current verified ledger summary: the group has **${overview.count}** recorded expenses totaling **$${overview.expenses.reduce((s, e) => s + e.amount, 0).toFixed(2)}**. You can ask me specific questions like *"how much do I owe Sarah"*, *"what did we spend on food"*, or *"who paid for the villa"*!`,
-    citations: overview.expenses.slice(0, 2).map((e) => ({
+    answer: `I found ${results.count} recent expenses in this group. You can ask me how much you owe any member, how much was spent on categories like food or travel, or ask for the minimal settle-up plan.`,
+    citations: results.expenses.map((e) => ({
       id: e.id,
       title: e.description,
       amount: e.amount,
@@ -344,6 +550,6 @@ export async function answerLedgerQuestion(
       receiptUrl: e.receiptImageUrl,
     })),
     toolExecuted: "searchExpenses",
-    data: overview,
+    data: results,
   };
 }

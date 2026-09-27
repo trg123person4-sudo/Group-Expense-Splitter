@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
 import { z } from "zod";
+import crypto from "crypto";
 
 const createGroupSchema = z.object({
   name: z.string().min(2, "Group name must be at least 2 characters"),
@@ -31,6 +32,7 @@ export async function GET() {
         include: { splits: true },
       },
       settlements: true,
+      invitations: true,
     },
     orderBy: { createdAt: "desc" },
   });
@@ -64,29 +66,42 @@ export async function POST(req: Request) {
       },
     });
 
-    // If initial members were provided, add or create them
+    // Instead of auto-creating fake user accounts, create real invitations
     if (validated.memberEmails && validated.memberEmails.length > 0) {
-      for (const email of validated.memberEmails) {
-        if (email.toLowerCase() === user.email.toLowerCase()) continue;
-        let memberUser = await prisma.user.findUnique({ where: { email } });
-        if (!memberUser) {
-          memberUser = await prisma.user.create({
-            data: {
-              name: email.split("@")[0],
-              email,
-              avatarUrl: `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(email)}`,
-            },
-          });
-        }
-        await prisma.groupMember.upsert({
-          where: { groupId_userId: { groupId: group.id, userId: memberUser.id } },
-          create: { groupId: group.id, userId: memberUser.id, role: "member" },
-          update: {},
+      const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+      for (const rawEmail of validated.memberEmails) {
+        const email = rawEmail.toLowerCase().trim();
+        if (email === user.email.toLowerCase()) continue;
+
+        const token = crypto.randomUUID();
+        await prisma.invitation.upsert({
+          where: { groupId_email: { groupId: group.id, email } },
+          create: {
+            groupId: group.id,
+            email,
+            token,
+            invitedBy: user.id,
+            status: "pending",
+            expiresAt,
+          },
+          update: {
+            token,
+            status: "pending",
+            expiresAt,
+          },
         });
       }
     }
 
-    return NextResponse.json({ group }, { status: 201 });
+    const fullGroup = await prisma.group.findUnique({
+      where: { id: group.id },
+      include: {
+        members: { include: { user: true } },
+        invitations: true,
+      },
+    });
+
+    return NextResponse.json({ group: fullGroup }, { status: 201 });
   } catch (err: any) {
     return NextResponse.json({ error: err.message || "Failed to create group" }, { status: 400 });
   }
