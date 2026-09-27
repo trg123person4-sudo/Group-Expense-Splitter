@@ -3,11 +3,20 @@ import { prisma } from "@/lib/prisma";
 import { getCurrentUser } from "@/lib/auth";
 import { z } from "zod";
 import crypto from "crypto";
+import { isValidCountryCode, isValidCurrencyCode } from "@/lib/countries";
 
 const createGroupSchema = z.object({
   name: z.string().min(2, "Group name must be at least 2 characters"),
   type: z.enum(["trip", "home", "couple", "other"]).default("trip"),
-  currency: z.string().default("USD"),
+  country: z
+    .string()
+    .length(2, "Country must be a 2-letter ISO 3166-1 alpha-2 code")
+    .refine((val) => isValidCountryCode(val), { message: "Invalid ISO 3166-1 alpha-2 country code" })
+    .default("US"),
+  currency: z
+    .string()
+    .refine((val) => isValidCurrencyCode(val), { message: "Invalid ISO 4217 currency code" })
+    .default("USD"),
   budgetLimit: z.number().optional().nullable(),
   memberEmails: z.array(z.string().email()).optional(),
 });
@@ -75,7 +84,8 @@ export async function POST(req: Request) {
       data: {
         name: validated.name,
         type: validated.type,
-        currency: validated.currency,
+        currency: validated.currency.toUpperCase(),
+        country: validated.country.toUpperCase(),
         budgetLimit: validated.budgetLimit || null,
         createdBy: user.id,
         members: {

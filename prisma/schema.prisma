@@ -16,6 +16,7 @@ model User {
   avatarUrl       String?
   image           String?
   defaultCurrency String                  @default("USD")
+  defaultCountry  String?                 @default("US")
   createdAt       DateTime                @default(now())
 
   accounts        Account[]
@@ -71,6 +72,7 @@ model Group {
   name        String
   type        String        @default("trip") // trip, home, couple, other
   currency    String        @default("USD")
+  country     String?       @default("US") // ISO 3166-1 alpha-2 code e.g. "US", "IN", "DE"
   budgetLimit Float?
   createdBy   String
   createdAt   DateTime      @default(now())

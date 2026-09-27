@@ -7,6 +7,7 @@ import { BottomNav } from "@/components/BottomNav";
 import { NewGroupModal } from "@/components/NewGroupModal";
 import { formatCurrency } from "@/lib/utils";
 import { Plus, ArrowRight, ChevronRight, User } from "lucide-react";
+import { getCountryByCode } from "@/lib/countries";
 
 interface UserType {
   id: string;
@@ -45,6 +46,7 @@ interface Group {
   name: string;
   type: string;
   currency: string;
+  country?: string;
   budgetLimit: number | null;
   members: Member[];
   expenses: Expense[];
@@ -231,6 +233,14 @@ export default function DashboardPage() {
                     <div className="flex items-center gap-4">
                       <div>
                         <div className="flex items-center gap-2">
+                          {g.country && (
+                            <span
+                              className="text-base leading-none select-none"
+                              title={getCountryByCode(g.country)?.name || g.country}
+                            >
+                              {getCountryByCode(g.country)?.flag || "🌐"}
+                            </span>
+                          )}
                           <span className="font-display font-bold text-base text-light-textPrimary dark:text-dark-textPrimary group-hover:text-accent transition-colors">
                             {g.name}
                           </span>

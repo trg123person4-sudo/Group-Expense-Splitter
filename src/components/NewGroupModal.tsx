@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { X } from "lucide-react";
+import { CountryCurrencySelect } from "./CountryCurrencySelect";
 
 interface NewGroupModalProps {
   onClose: () => void;
@@ -11,11 +12,26 @@ interface NewGroupModalProps {
 export function NewGroupModal({ onClose, onSuccess }: NewGroupModalProps) {
   const [name, setName] = useState("");
   const [type, setType] = useState<"trip" | "home" | "couple" | "other">("trip");
+  const [country, setCountry] = useState("US");
   const [currency, setCurrency] = useState("USD");
   const [budgetLimit, setBudgetLimit] = useState("");
   const [memberEmails, setMemberEmails] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch("/api/user/profile")
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.user?.defaultCountry) {
+          setCountry(data.user.defaultCountry);
+        }
+        if (data.user?.defaultCurrency) {
+          setCurrency(data.user.defaultCurrency);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -36,6 +52,7 @@ export function NewGroupModal({ onClose, onSuccess }: NewGroupModalProps) {
         body: JSON.stringify({
           name: name.trim(),
           type,
+          country,
           currency,
           budgetLimit: budgetLimit ? parseFloat(budgetLimit) : null,
           memberEmails: emails,
@@ -119,33 +136,25 @@ export function NewGroupModal({ onClose, onSuccess }: NewGroupModalProps) {
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-[10px] text-light-textMuted uppercase block">Currency</label>
-              <select
-                value={currency}
-                onChange={(e) => setCurrency(e.target.value)}
-                className="w-full mt-1 px-2.5 py-1.5 rounded border border-light-border dark:border-dark-border bg-transparent text-xs focus:outline-none"
-              >
-                <option value="USD">USD ($)</option>
-                <option value="EUR">EUR (€)</option>
-                <option value="GBP">GBP (£)</option>
-                <option value="INR">INR (₹)</option>
-                <option value="CAD">CAD (CA$)</option>
-                <option value="AUD">AUD (A$)</option>
-              </select>
-            </div>
+          {/* Country & Currency Selector with auto-chip and override */}
+          <CountryCurrencySelect
+            countryCode={country}
+            currencyCode={currency}
+            onCountryChange={setCountry}
+            onCurrencyChange={setCurrency}
+          />
 
-            <div>
-              <label className="text-[10px] text-light-textMuted uppercase block">Budget Cap (Optional)</label>
-              <input
-                type="number"
-                placeholder="2000"
-                value={budgetLimit}
-                onChange={(e) => setBudgetLimit(e.target.value)}
-                className="w-full mt-1 px-2.5 py-1.5 rounded border border-light-border dark:border-dark-border bg-transparent text-xs tabular-nums focus:outline-none focus:border-accent"
-              />
-            </div>
+          <div>
+            <label className="text-[10px] text-light-textMuted uppercase font-mono tracking-wider block">
+              Budget Cap (Optional)
+            </label>
+            <input
+              type="number"
+              placeholder="e.g. 2000"
+              value={budgetLimit}
+              onChange={(e) => setBudgetLimit(e.target.value)}
+              className="w-full mt-1 px-3 py-1.5 rounded border border-light-border dark:border-dark-border bg-transparent text-xs tabular-nums focus:outline-none focus:border-accent"
+            />
           </div>
 
           <div>

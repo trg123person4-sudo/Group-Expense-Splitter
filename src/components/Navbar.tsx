@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState, useEffect, useRef } from "react";
 import { useSession, signOut } from "next-auth/react";
 import { Plus, Moon, Sun, LogOut, User as UserIcon, Bell, Check, DollarSign, Receipt, CreditCard } from "lucide-react";
+import { ProfileSettingsModal } from "./ProfileSettingsModal";
 
 interface NotificationItem {
   id: string;
@@ -21,6 +22,7 @@ export function Navbar({ onNewGroup }: { onNewGroup?: () => void }) {
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [showNotifications, setShowNotifications] = useState(false);
+  const [showProfileModal, setShowProfileModal] = useState(false);
   const notifRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -179,13 +181,18 @@ export function Navbar({ onNewGroup }: { onNewGroup?: () => void }) {
                 )}
               </div>
 
-              {/* User Pill */}
-              <div className="flex items-center gap-1.5 px-2 py-1 rounded border border-light-border dark:border-dark-border bg-light-subtle dark:bg-dark-subtle text-xs">
+              {/* User Pill / Settings Trigger */}
+              <button
+                type="button"
+                onClick={() => setShowProfileModal(true)}
+                title="Profile & Currency Preferences"
+                className="flex items-center gap-1.5 px-2 py-1 rounded border border-light-border dark:border-dark-border bg-light-subtle dark:bg-dark-subtle hover:border-accent dark:hover:border-accent text-xs transition-colors cursor-pointer"
+              >
                 <UserIcon className="w-3.5 h-3.5 text-light-textMuted dark:text-dark-textMuted" />
                 <span className="font-medium text-light-textPrimary dark:text-dark-textPrimary truncate max-w-[120px]">
                   {session.user.name || session.user.email}
                 </span>
-              </div>
+              </button>
 
               {/* Log out */}
               <button
@@ -228,6 +235,10 @@ export function Navbar({ onNewGroup }: { onNewGroup?: () => void }) {
           )}
         </div>
       </div>
+
+      {showProfileModal && (
+        <ProfileSettingsModal onClose={() => setShowProfileModal(false)} />
+      )}
     </header>
   );
 }

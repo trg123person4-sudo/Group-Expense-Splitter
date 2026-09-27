@@ -13,6 +13,7 @@ import { ExpenseCard, ExpenseProps } from "@/components/ExpenseCard";
 import { ExpenseDetailModal } from "@/components/ExpenseDetailModal";
 import { InviteModal } from "@/components/InviteModal";
 import { formatCurrency } from "@/lib/utils";
+import { getCountryByCode } from "@/lib/countries";
 import {
   ArrowLeft,
   Plus,
@@ -172,8 +173,18 @@ export default function GroupDetailPage({
                 <span className="text-[10px] font-mono uppercase text-light-textMuted dark:text-dark-textMuted px-1.5 py-0.5 rounded border border-light-border dark:border-dark-border">
                   {group.type}
                 </span>
-                <span className="text-xs font-mono text-light-textSecondary">
-                  {group.currency} • {group.members.length} participants
+                <span className="text-xs font-mono text-light-textSecondary flex items-center gap-1">
+                  {group.country && (
+                    <span
+                      className="text-sm select-none"
+                      title={getCountryByCode(group.country)?.name || group.country}
+                    >
+                      {getCountryByCode(group.country)?.flag || "🌐"}
+                    </span>
+                  )}
+                  <span>{group.currency}</span>
+                  <span>•</span>
+                  <span>{group.members.length} participants</span>
                 </span>
               </div>
               <h1 className="font-display text-2xl sm:text-3xl font-bold text-light-textPrimary dark:text-dark-textPrimary mt-1">
